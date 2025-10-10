@@ -22,7 +22,6 @@ class ChatClientGUI:
         self.last_key_press_time = 0
 
     def create_login_frame(self):
-        """Cria o frame da tela de login."""
         frame = tk.Frame(self.master, padx=10, pady=10)
         frame.pack(padx=10, pady=10)
         
@@ -41,7 +40,9 @@ class ChatClientGUI:
     def handle_login(self):
         username = self.entry_username.get()
         password = self.entry_password.get()
+        threading.Thread(target=self.login_thread_handler, args=(username, password), daemon=True).start()
 
+    def login_thread_handler(self, username, password):
         if self.connect_to_server():
             message = f"LOGIN|{username}|{password}"
             self.client_socket.sendall(message.encode('utf-8'))
@@ -49,12 +50,10 @@ class ChatClientGUI:
             
             if response.startswith("LOGIN_OK"):
                 self.current_username = username
-                self.login_frame.destroy()
-                self.create_chat_window()
+                self.master.after(0, self.show_chat_window)
                 threading.Thread(target=self.receive_messages, daemon=True).start()
-                self.get_contacts_list()
             else:
-                messagebox.showerror("Login Falhou", response)
+                self.master.after(0, lambda: messagebox.showerror("Login Falhou", response))
                 self.client_socket.close()
 
     def handle_register(self):
@@ -73,16 +72,16 @@ class ChatClientGUI:
             self.client_socket.connect((HOST, PORT))
             return True
         except socket.error as e:
-            messagebox.showerror("Erro de Conexão", f"Não foi possível conectar ao servidor: {e}")
+            self.master.after(0, lambda: messagebox.showerror("Erro de Conexão", f"Não foi possível conectar ao servidor: {e}"))
             return False
 
     def get_contacts_list(self):
-        """Solicita e atualiza a lista de contatos do servidor."""
         message = "GET_CONTACTS"
-        self.client_socket.sendall(message.encode('utf-8'))
+        if self.client_socket:
+            self.client_socket.sendall(message.encode('utf-8'))
 
-    def create_chat_window(self):
-        """Cria a janela principal do chat."""
+    def show_chat_window(self):
+        self.login_frame.destroy()
         self.master.title(f"Chat - {self.current_username}")
         self.master.geometry("800x600")
 
@@ -97,6 +96,7 @@ class ChatClientGUI:
         self.contacts_listbox = tk.Listbox(contacts_frame)
         self.contacts_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.contacts_listbox.bind("<<ListboxSelect>>", self.on_contact_select)
+        self.get_contacts_list()
 
         self.chat_history = tk.Text(main_frame, state='disabled', wrap='word')
         self.chat_history.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -115,7 +115,7 @@ class ChatClientGUI:
         self.send_button = tk.Button(message_frame, text="Enviar", command=self.send_message)
         self.send_button.pack(side=tk.RIGHT)
         
-        self.master.bind("<Destroy>", self.on_closing)
+        self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def on_contact_select(self, event):
         selected_index = self.contacts_listbox.curselection()
@@ -132,7 +132,9 @@ class ChatClientGUI:
         if message and self.chatting_with:
             message_to_send = f"MESSAGE|{self.chatting_with}|{message}"
             self.client_socket.sendall(message_to_send.encode('utf-8'))
-            self.update_chat_history(f"Você: {message}")
+            self.update_chat_history(f"Você: {message}", True) # Passa True para salvar
+
+            # Ajusta o foco para a entrada de texto e limpa
             self.message_entry.delete(0, tk.END)
             self.send_typing_stop()
 
@@ -174,73 +176,105 @@ class ChatClientGUI:
                 if command == "MESSAGE":
                     sender = parts[1]
                     message = parts[2]
-                    self.update_chat_history(f"{sender}: {message}")
+                    self.master.after(0, lambda: self.handle_message_received(sender, message))
                 
                 elif command == "CONTACTS_LIST":
-                    self.contacts_listbox.delete(0, tk.END)
-                    contacts_with_status = parts[1:]
-                    for contact_with_status in contacts_with_status:
-                        username, status = contact_with_status.split(':')
-                        color = "green" if status == "online" else "black"
-                        self.contacts_listbox.insert(tk.END, username)
-                        self.contacts_listbox.itemconfig(tk.END, {'fg': color})
+                    contacts_list_data = parts[1:]
+                    formatted_contacts = []
+                    for contact_entry in contacts_list_data:
+                        username, status = contact_entry.split(':')
+                        if username != self.current_username:
+                            formatted_contacts.append(contact_entry)
+                    self.master.after(0, lambda: self.update_contacts_list(formatted_contacts))
 
                 elif command == "USER_STATUS":
                     username = parts[1]
                     status = parts[2]
-                    # Lógica para atualizar a cor do contato na lista
+                    self.master.after(0, lambda: self.update_contacts_status(username, status))
 
                 elif command == "TYPING":
                     sender = parts[1]
-                    self.typing_label.config(text=f"{sender} está digitando...")
+                    self.master.after(0, lambda: self.typing_label.config(text=f"{sender} está digitando..."))
                     
                 elif command == "TYPING_STOP":
                     sender = parts[1]
-                    self.typing_label.config(text="")
+                    self.master.after(0, lambda: self.typing_label.config(text=""))
 
                 elif command == "INFO":
-                    messagebox.showinfo("Informação", parts[1])
+                    self.master.after(0, lambda: messagebox.showinfo("Informação", parts[1]))
                 
                 elif command == "ERROR":
-                    messagebox.showerror("Erro", parts[1])
+                    self.master.after(0, lambda: messagebox.showerror("Erro", parts[1]))
 
             except socket.error:
                 break
         self.client_socket.close()
 
-    def update_chat_history(self, message):
+    def handle_message_received(self, sender, message):
+        """Processa a mensagem recebida e a salva no histórico, independente da conversa aberta."""
+        # Salva a mensagem no histórico do contato
+        self.save_chat_history_direct(sender, f"{sender}: {message}")
+        
+        # Se a conversa com o remetente estiver aberta, atualiza a GUI
+        if self.chatting_with == sender:
+            self.update_chat_history(f"{sender}: {message}", False) # Passa False para não salvar de novo
+
+    def update_contacts_list(self, contacts_with_status):
+        self.contacts_listbox.delete(0, tk.END)
+        for contact_with_status in contacts_with_status:
+            if ":" in contact_with_status:
+                username, status = contact_with_status.split(':', 1)
+                color = "green" if status == "online" else "black"
+                self.contacts_listbox.insert(tk.END, username)
+                self.contacts_listbox.itemconfig(tk.END, {'fg': color})
+            else:
+                self.contacts_listbox.insert(tk.END, contact_with_status)
+
+    def update_contacts_status(self, username, status):
+        # Lógica para atualizar a cor do contato na lista
+        pass
+
+    def update_chat_history(self, message, is_sent_message):
         """Atualiza a caixa de texto da conversa e salva a mensagem no arquivo."""
         self.chat_history.config(state='normal')
         self.chat_history.insert(tk.END, message + "\n")
         self.chat_history.config(state='disabled')
         self.chat_history.see(tk.END)
-        self.save_chat_history(message)
+        if is_sent_message:
+            self.save_chat_history(self.chatting_with, message)
 
-    def get_history_file_path(self):
-        """Retorna o caminho do arquivo de histórico."""
+    def save_chat_history(self, contact, message):
+        """Salva a mensagem no arquivo de histórico de um contato específico."""
         history_dir = "chat_history"
         if not os.path.exists(history_dir):
             os.makedirs(history_dir)
-        return os.path.join(history_dir, f"{self.chatting_with}.txt")
+        file_path = os.path.join(history_dir, f"{contact}.txt")
+        with open(file_path, "a") as f:
+            f.write(message + "\n")
 
-    def save_chat_history(self, message):
-        """Salva a mensagem no arquivo de histórico."""
-        if self.chatting_with:
-            file_path = self.get_history_file_path()
-            with open(file_path, "a") as f:
-                f.write(message + "\n")
-
+    def save_chat_history_direct(self, contact, message):
+        """Salva a mensagem no arquivo de histórico de um contato específico."""
+        history_dir = "chat_history"
+        if not os.path.exists(history_dir):
+            os.makedirs(history_dir)
+        file_path = os.path.join(history_dir, f"{contact}.txt")
+        with open(file_path, "a") as f:
+            f.write(message + "\n")
+            
     def load_chat_history(self):
         """Carrega o histórico de conversa do arquivo."""
-        file_path = self.get_history_file_path()
-        if os.path.exists(file_path):
-            with open(file_path, "r") as f:
-                history = f.read()
-                self.chat_history.insert(tk.END, history)
+        if self.chatting_with:
+            history_dir = "chat_history"
+            file_path = os.path.join(history_dir, f"{self.chatting_with}.txt")
+            if os.path.exists(file_path):
+                with open(file_path, "r") as f:
+                    history = f.read()
+                    self.chat_history.insert(tk.END, history)
 
     def on_closing(self):
         if messagebox.askokcancel("Sair", "Tem certeza que deseja sair?"):
             if self.client_socket:
+                self.client_socket.sendall("LOGOUT".encode('utf-8'))
                 self.client_socket.close()
             self.master.destroy()
 

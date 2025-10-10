@@ -39,9 +39,14 @@ class ChatClientGUI:
         return frame
 
     def handle_login(self):
+        """Inicia uma nova thread para o login."""
         username = self.entry_username.get()
         password = self.entry_password.get()
+        # Inicia uma thread para evitar que a GUI congele
+        threading.Thread(target=self.login_thread_handler, args=(username, password), daemon=True).start()
 
+    def login_thread_handler(self, username, password):
+        """Lida com a lógica de login na thread separada."""
         if self.connect_to_server():
             message = f"LOGIN|{username}|{password}"
             self.client_socket.sendall(message.encode('utf-8'))
@@ -49,12 +54,12 @@ class ChatClientGUI:
             
             if response.startswith("LOGIN_OK"):
                 self.current_username = username
-                self.login_frame.destroy()
-                self.create_chat_window()
+                # Chama a função para mudar a janela na thread principal da GUI
+                self.master.after(0, self.show_chat_window)
                 threading.Thread(target=self.receive_messages, daemon=True).start()
                 self.get_contacts_list()
             else:
-                messagebox.showerror("Login Falhou", response)
+                self.master.after(0, lambda: messagebox.showerror("Login Falhou", response))
                 self.client_socket.close()
 
     def handle_register(self):
@@ -66,14 +71,14 @@ class ChatClientGUI:
             response = self.client_socket.recv(1024).decode('utf-8')
             messagebox.showinfo("Registro", response)
             self.client_socket.close()
-
+    
     def connect_to_server(self):
         try:
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.connect((HOST, PORT))
             return True
         except socket.error as e:
-            messagebox.showerror("Erro de Conexão", f"Não foi possível conectar ao servidor: {e}")
+            self.master.after(0, lambda: messagebox.showerror("Erro de Conexão", f"Não foi possível conectar ao servidor: {e}"))
             return False
 
     def get_contacts_list(self):
@@ -81,8 +86,9 @@ class ChatClientGUI:
         message = "GET_CONTACTS"
         self.client_socket.sendall(message.encode('utf-8'))
 
-    def create_chat_window(self):
+    def show_chat_window(self):
         """Cria a janela principal do chat."""
+        self.login_frame.destroy()
         self.master.title(f"Chat - {self.current_username}")
         self.master.geometry("800x600")
 
@@ -174,39 +180,48 @@ class ChatClientGUI:
                 if command == "MESSAGE":
                     sender = parts[1]
                     message = parts[2]
-                    self.update_chat_history(f"{sender}: {message}")
+                    self.master.after(0, lambda: self.update_chat_history(f"{sender}: {message}"))
                 
                 elif command == "CONTACTS_LIST":
-                    self.contacts_listbox.delete(0, tk.END)
-                    contacts_with_status = parts[1:]
-                    for contact_with_status in contacts_with_status:
-                        username, status = contact_with_status.split(':')
-                        color = "green" if status == "online" else "black"
-                        self.contacts_listbox.insert(tk.END, username)
-                        self.contacts_listbox.itemconfig(tk.END, {'fg': color})
+                    self.master.after(0, lambda: self.update_contacts_list(parts[1:]))
 
                 elif command == "USER_STATUS":
                     username = parts[1]
                     status = parts[2]
-                    # Lógica para atualizar a cor do contato na lista
+                    self.master.after(0, lambda: self.update_contacts_status(username, status))
 
                 elif command == "TYPING":
                     sender = parts[1]
-                    self.typing_label.config(text=f"{sender} está digitando...")
+                    self.master.after(0, lambda: self.typing_label.config(text=f"{sender} está digitando..."))
                     
                 elif command == "TYPING_STOP":
                     sender = parts[1]
-                    self.typing_label.config(text="")
+                    self.master.after(0, lambda: self.typing_label.config(text=""))
 
                 elif command == "INFO":
-                    messagebox.showinfo("Informação", parts[1])
+                    self.master.after(0, lambda: messagebox.showinfo("Informação", parts[1]))
                 
                 elif command == "ERROR":
-                    messagebox.showerror("Erro", parts[1])
+                    self.master.after(0, lambda: messagebox.showerror("Erro", parts[1]))
 
             except socket.error:
                 break
         self.client_socket.close()
+
+    def update_contacts_list(self, contacts_with_status):
+        self.contacts_listbox.delete(0, tk.END)
+        for contact_with_status in contacts_with_status:
+            if ":" in contact_with_status:
+                username, status = contact_with_status.split(':', 1)
+                color = "green" if status == "online" else "black"
+                self.contacts_listbox.insert(tk.END, username)
+                self.contacts_listbox.itemconfig(tk.END, {'fg': color})
+            else:
+                self.contacts_listbox.insert(tk.END, contact_with_status)
+
+    def update_contacts_status(self, username, status):
+        # Lógica para atualizar a cor do contato na lista
+        pass
 
     def update_chat_history(self, message):
         """Atualiza a caixa de texto da conversa e salva a mensagem no arquivo."""

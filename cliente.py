@@ -245,27 +245,20 @@ class ChatClientGUI:
 
     def save_chat_history(self, contact, message):
         """Salva a mensagem no arquivo de histórico de um contato específico."""
-        history_dir = "chat_history"
-        if not os.path.exists(history_dir):
-            os.makedirs(history_dir)
-        file_path = os.path.join(history_dir, f"{contact}.txt")
+        file_path = self.get_history_filename(contact)
         with open(file_path, "a") as f:
             f.write(message + "\n")
 
     def save_chat_history_direct(self, contact, message):
         """Salva a mensagem no arquivo de histórico de um contato específico."""
-        history_dir = "chat_history"
-        if not os.path.exists(history_dir):
-            os.makedirs(history_dir)
-        file_path = os.path.join(history_dir, f"{contact}.txt")
+        file_path = self.get_history_filename(contact) 
         with open(file_path, "a") as f:
             f.write(message + "\n")
             
     def load_chat_history(self):
         """Carrega o histórico de conversa do arquivo."""
         if self.chatting_with:
-            history_dir = "chat_history"
-            file_path = os.path.join(history_dir, f"{self.chatting_with}.txt")
+            file_path = self.get_history_filename(self.chatting_with) 
             if os.path.exists(file_path):
                 with open(file_path, "r") as f:
                     history = f.read()
@@ -277,6 +270,15 @@ class ChatClientGUI:
                 self.client_socket.sendall("LOGOUT".encode('utf-8'))
                 self.client_socket.close()
             self.master.destroy()
+    def get_history_filename(self, contact):
+        history_dir = "chat_history"
+        if not os.path.exists(history_dir):
+            os.makedirs(history_dir)
+        
+        # Ordena os nomes de usuário para criar um nome de arquivo consistente
+        usernames = sorted([self.current_username, contact])
+        filename = f"{usernames[0]}_{usernames[1]}.txt"
+        return os.path.join(history_dir, filename)
 
 if __name__ == "__main__":
     root = tk.Tk()

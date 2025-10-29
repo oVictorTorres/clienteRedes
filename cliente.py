@@ -140,7 +140,7 @@ class ChatClientGUI:
             
             self.save_chat_history(self.chatting_with, neutral_message)
             
-            self.update_chat_history(f"Você: {message}", False) 
+            self.update_chat_history(f"Você: {message}")
 
             self.message_entry.delete(0, tk.END)
             self.send_typing_stop()
@@ -218,13 +218,9 @@ class ChatClientGUI:
         self.client_socket.close()
 
     def handle_message_received(self, sender, message):
-        """Processa a mensagem recebida e a salva no histórico, independente da conversa aberta."""
-        # Salva a mensagem no histórico do contato
-        self.save_chat_history_direct(sender, f"{sender}: {message}")
-        
-        # Se a conversa com o remetente estiver aberta, atualiza a GUI
+        """Processa a mensagem recebida e APENAS exibe, sem salvar."""
         if self.chatting_with == sender:
-            self.update_chat_history(f"{sender}: {message}", False) # Passa False para não salvar de novo
+            self.update_chat_history(f"{sender}: {message}")
 
     def update_contacts_list(self, contacts_with_status):
         self.contacts_listbox.delete(0, tk.END)
@@ -241,7 +237,7 @@ class ChatClientGUI:
         # Lógica para atualizar a cor do contato na lista
         pass
 
-    def update_chat_history(self, message, is_sent_message=None): 
+    def update_chat_history(self, message):
         """Apenas atualiza a caixa de texto da conversa."""
         self.chat_history.config(state='normal')
         self.chat_history.insert(tk.END, message + "\n")
@@ -251,12 +247,6 @@ class ChatClientGUI:
     def save_chat_history(self, contact, message):
         """Salva a mensagem no arquivo de histórico de um contato específico."""
         file_path = self.get_history_filename(contact)
-        with open(file_path, "a") as f:
-            f.write(message + "\n")
-
-    def save_chat_history_direct(self, contact, message):
-        """Salva a mensagem no arquivo de histórico de um contato específico."""
-        file_path = self.get_history_filename(contact) 
         with open(file_path, "a") as f:
             f.write(message + "\n")
             
@@ -273,13 +263,13 @@ class ChatClientGUI:
                             continue
                         
                         try:
-                            sender, message = line.split(":", 1)
-                            message = message.strip() 
+                            sender, message_content = line.split(":", 1)
+                            message_content = message_content.strip()
                             
                             if sender == self.current_username:
-                                display_message = f"Você: {message}"
+                                display_message = f"Você: {message_content}"
                             else:
-                                display_message = line
+                                display_message = line 
                         except ValueError:
                             display_message = line
                         

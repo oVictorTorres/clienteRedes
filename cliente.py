@@ -135,9 +135,13 @@ class ChatClientGUI:
         if message and self.chatting_with:
             message_to_send = f"MESSAGE|{self.chatting_with}|{message}"
             self.client_socket.sendall(message_to_send.encode('utf-8'))
-            self.update_chat_history(f"Você: {message}", True) # Passa True para salvar
+            
+            neutral_message = f"{self.current_username}: {message}"
+            
+            self.save_chat_history(self.chatting_with, neutral_message)
+            
+            self.update_chat_history(f"Você: {message}", False) 
 
-            # Ajusta o foco para a entrada de texto e limpa
             self.message_entry.delete(0, tk.END)
             self.send_typing_stop()
 
@@ -237,14 +241,12 @@ class ChatClientGUI:
         # Lógica para atualizar a cor do contato na lista
         pass
 
-    def update_chat_history(self, message, is_sent_message):
-        """Atualiza a caixa de texto da conversa e salva a mensagem no arquivo."""
+    def update_chat_history(self, message, is_sent_message=None): 
+        """Apenas atualiza a caixa de texto da conversa."""
         self.chat_history.config(state='normal')
         self.chat_history.insert(tk.END, message + "\n")
         self.chat_history.config(state='disabled')
         self.chat_history.see(tk.END)
-        if is_sent_message:
-            self.save_chat_history(self.chatting_with, message)
 
     def save_chat_history(self, contact, message):
         """Salva a mensagem no arquivo de histórico de um contato específico."""
@@ -259,13 +261,29 @@ class ChatClientGUI:
             f.write(message + "\n")
             
     def load_chat_history(self):
-        """Carrega o histórico de conversa do arquivo."""
+        """Carrega o histórico de conversa do arquivo e aplica o rótulo 'Você'."""
         if self.chatting_with:
             file_path = self.get_history_filename(self.chatting_with) 
+            
             if os.path.exists(file_path):
                 with open(file_path, "r") as f:
-                    history = f.read()
-                    self.chat_history.insert(tk.END, history)
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        try:
+                            sender, message = line.split(":", 1)
+                            message = message.strip() 
+                            
+                            if sender == self.current_username:
+                                display_message = f"Você: {message}"
+                            else:
+                                display_message = line
+                        except ValueError:
+                            display_message = line
+                        
+                        self.chat_history.insert(tk.END, display_message + "\n")
 
     def on_closing(self):
         if messagebox.askokcancel("Sair", "Tem certeza que deseja sair?"):

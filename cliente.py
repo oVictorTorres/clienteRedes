@@ -123,8 +123,11 @@ class ChatClientGUI:
             self.chatting_with = self.contacts_listbox.get(selected_index[0])
             self.master.title(f"Chat - {self.current_username} (Conversando com {self.chatting_with})")
             self.chat_history.config(state='normal')
+            
             self.chat_history.delete('1.0', tk.END)
+            
             self.load_chat_history()
+            
             self.chat_history.config(state='disabled')
 
     def send_message(self):
